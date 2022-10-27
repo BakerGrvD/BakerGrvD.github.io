@@ -1,18 +1,16 @@
-<!DOCTYPE html>
-<html><head>
-<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<!DOCTYPE html><html><head>
 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="referrer" content="no-referrer">
-<!-- base href="https://8chananon.github.io/dl/auth8kun.htm" -->
+<meta name="referrer" content="origin">
+<base target="_blank">
 
 <title>8kun Authentigator</title>
 
 <style type="text/css">
 
 body {
-  text-align: center; padding: 0 30px;
+  text-align: center; margin: 0 15px;
   font-size: 16px; line-height: 19px;
   font-family: 'times new roman', serif;
   color: brown; background-color: navajowhite;
@@ -23,14 +21,14 @@ input {
   font-family: 'consolas', 'lucida console', monospace;
   padding: 3px 5px 3px 5px; caret-color: navy;
   color: crimson; background-color: seashell;
-  border: 2px solid burlywood; border-radius: 4px;
-  text-align: center; margin: 5px 0;
+  border: 2px solid orange; border-radius: 4px;
+  text-align: center; margin: 6px 1px;
 }
 
 button {
   width: auto; height: auto;
   font-size: 15px; line-height: 19px;
-  padding: 1px 6px 0 6px; margin: 8px 0 10px 0;
+  padding: 1px 6px 0 6px; margin: 6px 1px;
   font-family: 'helvetica', sans-serif;
   color: purple; background-color: powderblue;
   outline: none; border-color: #e8e8e8 #9c9c9c #9c9c9c #ececec;
@@ -41,7 +39,15 @@ button:hover:active {
 }
 
 h1 {
-  margin: 20px 0 20px 0;
+  margin: 10px 0 10px 0; line-height: 1em;
+}
+
+textarea {
+  box-sizing: border-box; resize: none; padding: 3px 8px; margin: 6px 0;
+  vertical-align: top; white-space: pre-wrap; outline: none;
+  font-size: 13px; line-height: 18px; font-family: 'verdana', san-serif;
+  caret-color: maroon; border: 2px solid burlywood; border-radius: 4px;
+  color: mediumblue; background-color: snow;
 }
 
 ::selection {
@@ -52,120 +58,128 @@ r_ { color: crimson; }
 g_ { color: green; }
 b_ { color: blue; }
 
-</style></head><body onload="javascript:start()"><h1><g_>8kun Authentigator</g_></h1>
+</style></head><body onload="javascript:start()">
+<h1><g_>8kun Authentigator</g_></h1>
 
-<input type="text" style="width:196px" value="THYX765FYPZ7IMT7">
-<input type="text" style="width:196px" disabled="disabled" value="Time sync: 310">
-<input type="text" style="width:60px" disabled="disabled" value="3">
-<input type="text" style="width:110px" disabled="true" value="704525">
-<button onclick="javascript:timesync()">Time Sync</button>&nbsp;
+<input type=text style="width:300px" disabled>
+<br>
+<button onclick="javascript:get_address()">Get Address</button>&nbsp;
+<button onclick="javascript:request_code()">Request Code</button>&nbsp;
+<button onclick="javascript:check_email()">Check Email</button>
+<br><textarea style="width:350px;height:48px"></textarea>
+<br><g_>Time left:</g_>
+<input type=text style="width:44px" disabled>&nbsp;
+<input type=text style="width:82px" disabled>
 <button onclick="javascript:copycode()">Copy Code</button>
 
+<div style="text-align:left"><p>
+The 8kun Authentigator uses an <a href="https://www.guerrillamail.com/inbox">anonymous email server</a> which requires
+no registration, no account details and no password. Press <g_>Get Address</g_> to receive your anonymous email
+address.You should only do this once. Copy the address to the 8kun reply box. Next, press <g_>Request Code</g_>
+to send an email request to the 8kun server. If the server tells you that a code was sent to your mailbox then press
+<g_>Check Email</g_> to probe the mail server for your TOTP code. If successful, press <g_>Copy Code</g_> and paste the
+code to the reply box.
+<p>
+A fresh code is good for about 5 minutes. The countdown timer starts from the time when you get the code from the
+mailbox, not the time when you send the email request to 8kun. The code expires about 30 seconds before you are allowed
+to request a new one. Avoid changing the email address since this can invalidate the code, forcing you to wait
+5 minutes to get a new one.
+<p>
+A remote proxy server (<g_>xyss5.herokuapp.com</g_>) is used to bypass the browser cross-origin restriction when
+accessing 8kun. The proxy is non-anonymizing, meaning that it passes your IP address to the 8kun server in an HTTP
+header. This is important because the TOTP is associated with your IP address. If the proxy server is not working
+then use the "request_totp" option in the reply box.
 
-
-
-<script src="crypto.js"></script>
+</div></body>
 
 <script>
 
-var offset = 0, box = document.getElementsByTagName ("input");
+var resp, data, time, token = email = seq = "", busy = 0;
+
+var proxy_url = "https://xyss5.herokuapp.com/";
+var email_url = "https://api.guerrillamail.com/ajax.php?";
+var post_8kun = "https://sys.8kun.top/_sm.php";
+
+var box = document.getElementsByTagName ("input");
+var txt = document.getElementsByTagName ("textarea")[0];
 
 var start = function ()
 {
-  setInterval (function() { nextcode(); }, 1000); box [1].value = "";
+  box [0].value = box [1].value = box [2].value = txt.value = "";
 }
 
 var copycode = function ()
 {
-  box [3].removeAttribute ("disabled");
-  box [3].select(); document.execCommand ("copy");
-  box [3].setAttribute ("disabled", true);
+  box [2].removeAttribute ("disabled");
+  box [2].select(); document.execCommand ("copy");
+  box [2].setAttribute ("disabled", true);
 }
 
-var timesync = async () =>
+var message = function (msg)
 {
-  var resp, data, time = Date.now(); box [1].value = "Checking the time...";
+  if (msg [0] == "#") { txt.value = ""; msg = msg.substr (1); }
+  if (txt.value) msg = "\n>> " + msg; txt.value += msg;
+}
+
+var get_address = async () =>
+{
+  if (busy) return; busy = 1; message ("#Waiting for email address...");
 
   try {
-    resp = await fetch ("https://worldtimeapi.org/api/ip");
-    data = await resp.json();
-  } catch (e) { data = ""; }
+    resp = await fetch (email_url + "f=get_email_address&sid_token=" + token);
+    data = await resp.json(); } catch (e) { data = ""; }
 
-  if (!data || !data.unixtime) data = "Timer server down"; else
-  {
-    offset = data.unixtime * 1000 - time;
-    data = "Time sync: " + Math.round (offset / 1000);
-  }
+  email = data.email_addr || ""; token = data.sid_token || "";
 
-  box [1].value = data;
+  busy = 0; box [0].value = email; message (email ? "Got email address." : "Sum Ting Wong!");
 }
 
-var nextcode = function ()
+var request_code = async () =>
 {
-  var time = Math.trunc ((Date.now() + offset) / 1000);
-  var key = box [0].value; box [2].value = 30 - (time % 30);
+  if (busy) return; if (!email) { message ("#Need email address."); return; }
 
-  if (!(key = frombase32 (key))) key = "error"; else
-  {
-    key = CryptoJS.enc.Hex.parse (key);
-    key = get_token (1, time, 30, key, 6);
-  }
+  var head = { 'content-type': 'application/x-www-form-urlencoded' };
+  busy = 1; data = "email=" + email; message ("#Submitting email request...");
 
-  box [3].value = key;
+  try {
+    resp = await fetch (proxy_url + post_8kun, { method: 'POST', headers: head, body: data });
+    data = await resp.text(); } catch (e) { data = ""; }
+
+  busy = 0; message (data ? data : "No response.");
 }
 
-var frombase32 = function (key)  // implementation of RFC 3548
+var check_email = function ()
 {
-  var n, p, bits = [], hex = "";
-  var base16 = "0123456789ABCDEF", base32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567=";
-
-  for (n = 0; n < key.length; n++)
-  {
-    p = base32.indexOf (key [n]);
-    if (p < 0) return (""); if (p == 32) p = 0; bits.push (p);
-  }
-
-  if (bits.length & 7) return ("");
-
-  for (n = 0; n < bits.length; n += 4)
-  {
-    hex += base16 [bits [n+0] >> 1];
-    hex += base16 [((bits [n+0] & 1) << 3) + (bits [n+1] >> 2)];
-    hex += base16 [((bits [n+1] & 3) << 2) + (bits [n+2] >> 3)];
-    hex += base16 [((bits [n+2] & 7) << 1) + (bits [n+3] >> 4)];
-    hex += base16 [bits [n+3] & 15];
-  }
-
-  return (hex);
+  if (!busy) if (email) update_email (5); else message ("#Need email address.");
 }
 
-var get_token = function (hmac, time, step, key, digits)  // implementation of RFC 6238
+var update_email = async (timer) =>
 {
-  var hash, val = Math.trunc (time / step).toString (16);
-  val = "0".repeat (16 - val.length) + val;
-  val = CryptoJS.enc.Hex.parse (val);
+  busy = 1; message ("#Timeout: " + timer--);
+  if (timer >= 0) { setTimeout (function() { update_email (timer); }, 1000); return; }
 
-  if (hmac == 1) hash = CryptoJS.HmacSHA1   (val, key).toString();
-  if (hmac == 2) hash = CryptoJS.HmacSHA256 (val, key).toString();
-  if (hmac == 3) hash = CryptoJS.HmacSHA512 (val, key).toString();
+  var code; message ("#Checking email...");
 
-  var z = hex2dec (hash.substr (-1)) * 2;
-  var a = hex2dec (hash.substr (z + 0, 2));
-  var b = hex2dec (hash.substr (z + 2, 2));
-  var c = hex2dec (hash.substr (z + 4, 2));
-  var d = hex2dec (hash.substr (z + 6, 2));
+  try {
+    resp = await fetch (email_url + "f=check_email&sid_token=" + token + "&seq=" + seq);
+    data = await resp.json(); } catch (e) { data = ""; }
 
-  z = ((a & 127) << 24) + (b << 16) + (c << 8) + d;
-  z = (z % (Math.pow (10, digits))).toString();
-  z = "0".repeat (digits - z.length) + z;
+  if (data.sid_token) token = data.sid_token;
 
-  return (z);
+  if (data.list) for (var m, n = 0; n < data.list.length; n++)
+    if ((m = data.list [n].mail_subject) && m.substr (0,4) == "TOTP")
+      { seq = data.list [n].mail_id; code = m.substr (6); break; }
+      
+  busy = 0; if (!code) { message ("Email checked."); return; }
+
+  box [2].value = code; message ("TOTP Code found."); countdown (Date.now());
 }
 
-var hex2dec = function (val)
+var countdown = function (now)
 {
-  return (parseInt (val, 16));
+  if (now) time = now + 300000; else now = Date.now();
+  now = Math.trunc ((time - now) / 1000); box [1].value = now;
+  if (now > 0) setTimeout (function() { countdown (0); }, 1000);
 }
 
-</script>
-</p></body></html>
+</script></html>
